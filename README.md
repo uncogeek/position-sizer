@@ -7,7 +7,7 @@
 
 > A professional risk management tool for Forex traders that calculates optimal position sizes based on account balance, risk parameters, and price levels.
 
-![Position Sizer Demo](https://via.placeholder.com/800x400?text=Position+Sizer+Screenshot)
+![Position Sizer Demo](https://raw.githubusercontent.com/uncogeek/position-sizer/master/screenshot.png)
 
 ## ✨ Features
 
