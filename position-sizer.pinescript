@@ -1,0 +1,155 @@
+//@version=6
+indicator("Position Sizer - EUR/USD", overlay=true)
+
+// User settings
+var float accountBalance = input.float(10000, "Account Balance ($)", minval=100, step=100, group="Account Settings")
+var float riskPercent = input.float(1, "Risk Percentage (%)", minval=0.1, maxval=10, step=0.1, group="Account Settings")
+var int leverage = input.int(50, "Leverage", minval=1, maxval=1000, step=1, group="Account Settings")
+
+// Create interactive price lines with static defaults
+float defaultEntryPrice = 1.1000  // Default constant value
+float defaultSLPrice = 1.0950     // Default constant value 
+float defaultTPPrice = 1.1100     // Default constant value
+
+// Input price levels with constant defaults
+entryPriceInput = input.price(defval=defaultEntryPrice, title="Entry Price", confirm=false, group="Price Levels", inline="entry")
+color entryColor = input.color(color.blue, "", inline="entry")
+
+slPriceInput = input.price(defval=defaultSLPrice, title="Stop Loss", confirm=false, group="Price Levels", inline="sl")  
+color slColor = input.color(color.red, "", inline="sl")
+
+tpPriceInput = input.price(defval=defaultTPPrice, title="Take Profit", confirm=false, group="Price Levels", inline="tp") 
+color tpColor = input.color(color.green, "", inline="tp")
+
+// Variables to hold our actual plotted values
+var float entryPriceLine = na
+var float slPriceLine = na
+var float tpPriceLine = na
+
+// Initialize price levels on the first calculation
+if na(entryPriceLine)
+    entryPriceLine := close
+    slPriceLine := close - 0.0010  // 10 pips below for long
+    tpPriceLine := close + 0.0020  // 20 pips above for long
+else
+    // After initialization, use the input values
+    entryPriceLine := entryPriceInput
+    slPriceLine := slPriceInput
+    tpPriceLine := tpPriceInput
+
+// Draw the lines
+plot(entryPriceLine, "Entry", color=entryColor, linewidth=2, style=plot.style_line, offset=-1)
+plot(slPriceLine, "Stop Loss", color=slColor, linewidth=2, style=plot.style_line, offset=-1)
+plot(tpPriceLine, "Take Profit", color=tpColor, linewidth=2, style=plot.style_line, offset=-1)
+
+// Add labels at the end of each line
+var label entryLabel = na
+var label slLabel = na
+var label tpLabel = na
+
+// Update labels on each bar
+if barstate.islast
+    // Remove old labels if they exist
+    if not na(entryLabel)
+        label.delete(entryLabel)
+    if not na(slLabel)
+        label.delete(slLabel)
+    if not na(tpLabel)
+        label.delete(tpLabel)
+        
+    // Create new labels at the rightmost bar
+    entryLabel := label.new(bar_index, entryPriceLine, "Entry\n" + str.tostring(entryPriceLine, "#.#####"), color=color.new(entryColor, 15), textcolor=color.black, style=label.style_label_right)
+    slLabel := label.new(bar_index, slPriceLine, "SL\n" + str.tostring(slPriceLine, "#.#####"), color=color.new(slColor, 15), textcolor=color.black, style=label.style_label_right)
+    tpLabel := label.new(bar_index, tpPriceLine, "TP\n" + str.tostring(tpPriceLine, "#.#####"), color=color.new(tpColor, 15), textcolor=color.black, style=label.style_label_right)
+
+// Determine position direction automatically
+string positionType = entryPriceLine > slPriceLine ? "Long" : "Short"
+int position_direction = positionType == "Long" ? 1 : -1
+
+// Table colors and style
+var color bgColor = color.new(color.black, 70)
+var color textColor = color.white
+var color headerColor = color.new(color.blue, 70)
+var color borderColor = color.new(color.gray, 50)
+
+// Create results table
+var table resultsTable = table.new(position=position.top_right, columns=2, rows=13, bgcolor=bgColor, border_width=1, border_color=borderColor)
+
+// Update table headers
+table.cell(resultsTable, 0, 0, "Position Sizer (EUR/USD)", bgcolor=headerColor, text_color=textColor, text_size=size.small)
+table.cell(resultsTable, 1, 0, "Values", bgcolor=headerColor, text_color=textColor, text_size=size.small)
+
+// Calculate risk amount
+float riskUSD = accountBalance * riskPercent / 100
+
+// Variables for output
+float riskPips = 0.0
+float rewardPips = 0.0
+float lotSize = 0.0
+float rewardUSD = 0.0
+float rr = 0.0
+float positionMargin = 0.0
+float freeMargin = 0.0
+
+// Calculate position metrics
+if entryPriceLine > 0 and slPriceLine > 0 and tpPriceLine > 0
+    // Calculate risk in pips
+    riskPips := position_direction == 1 ? math.abs((entryPriceLine - slPriceLine) * 10000) : math.abs((slPriceLine - entryPriceLine) * 10000)
+    
+    // Calculate reward in pips
+    rewardPips := position_direction == 1 ? math.abs((tpPriceLine - entryPriceLine) * 10000) : math.abs((entryPriceLine - tpPriceLine) * 10000)
+    
+    // Calculate lot size
+    lotSize := riskPips > 0 ? riskUSD / (riskPips * 10) : 0
+
+    // Calculate reward/risk ratio
+    rr := position_direction == 1 ? math.abs((tpPriceLine - entryPriceLine) / (entryPriceLine - slPriceLine)) : math.abs((entryPriceLine - tpPriceLine) / (slPriceLine - entryPriceLine))
+    
+    // Calculate potential reward in USD
+    rewardUSD := rr * riskUSD
+
+    // Calculate position size in USD
+    float positionSizeUSD = lotSize * 100000 * entryPriceLine
+
+    // Calculate position margin with leverage
+    positionMargin := positionSizeUSD / leverage
+
+    // Calculate free margin
+    freeMargin := accountBalance - positionMargin
+
+// Update table with calculated values
+table.cell(resultsTable, 0, 1, "Direction", text_color=textColor)
+table.cell(resultsTable, 1, 1, positionType, text_color=positionType == "Long" ? color.green : color.red)
+
+table.cell(resultsTable, 0, 2, "Entry Price", text_color=textColor)
+table.cell(resultsTable, 1, 2, str.tostring(entryPriceLine, "#.#####"), text_color=textColor)
+
+table.cell(resultsTable, 0, 3, "Stop Loss", text_color=textColor)
+table.cell(resultsTable, 1, 3, str.tostring(slPriceLine, "#.#####"), text_color=textColor)
+
+table.cell(resultsTable, 0, 4, "Take Profit", text_color=textColor)
+table.cell(resultsTable, 1, 4, str.tostring(tpPriceLine, "#.#####"), text_color=textColor)
+
+table.cell(resultsTable, 0, 5, "Risk (USD)", text_color=textColor)
+table.cell(resultsTable, 1, 5, "$" + str.tostring(riskUSD, "#.##"), text_color=textColor)
+
+table.cell(resultsTable, 0, 6, "Reward (USD)", text_color=textColor)
+table.cell(resultsTable, 1, 6, "$" + str.tostring(rewardUSD, "#.##"), text_color=textColor)
+
+table.cell(resultsTable, 0, 7, "Risk (pips)", text_color=textColor)
+table.cell(resultsTable, 1, 7, str.tostring(riskPips, "#"), text_color=textColor)
+
+table.cell(resultsTable, 0, 8, "Reward (pips)", text_color=textColor)
+table.cell(resultsTable, 1, 8, str.tostring(rewardPips, "#"), text_color=textColor)
+
+table.cell(resultsTable, 0, 9, "Lot Size", text_color=textColor)
+table.cell(resultsTable, 1, 9, str.tostring(lotSize, "#.##"), text_color=textColor)
+
+table.cell(resultsTable, 0, 10, "R:R Ratio", text_color=textColor)
+table.cell(resultsTable, 1, 10, str.tostring(rr, "#.##"), text_color=textColor)
+
+table.cell(resultsTable, 0, 11, "Margin Used", text_color=textColor)
+table.cell(resultsTable, 1, 11, "$" + str.tostring(positionMargin, "#.##"), text_color=textColor)
+
+table.cell(resultsTable, 0, 12, "Free Margin", text_color=textColor)
+table.cell(resultsTable, 1, 12, "$" + str.tostring(freeMargin, "#.##"), text_color=textColor)
